@@ -16,7 +16,7 @@
             float is_fbm(vec2 p) {
                 float v = 0.0;
                 float amp = 0.5;
-                for (int i = 0; i < 5; i++) {
+                for (int i = 0; i < 4; i++) {
                     v += amp * is_noise(p);
                     p *= 2.1;
                     amp *= 0.5;

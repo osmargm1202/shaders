@@ -16,7 +16,7 @@
             float fbm(vec2 p) {
                 float v = 0.0;
                 float amp = 0.5;
-                for (int i = 0; i < 6; i++) {
+                for (int i = 0; i < 4; i++) {
                     v += amp * noise(p);
                     p *= 2.0;
                     amp *= 0.5;
@@ -24,17 +24,15 @@
                 return v;
             }
 
+            vec2 warp_r;
             float warpedFbm(vec2 p, float t) {
                 vec2 q = vec2(fbm(p + vec2(0.0, 0.0)),
                               fbm(p + vec2(5.2, 1.3)));
 
-                vec2 r = vec2(fbm(p + 6.0 * q + vec2(1.7, 9.2) + 0.25 * t),
+                warp_r = vec2(fbm(p + 6.0 * q + vec2(1.7, 9.2) + 0.25 * t),
                               fbm(p + 6.0 * q + vec2(8.3, 2.8) + 0.22 * t));
 
-                vec2 s = vec2(fbm(p + 5.0 * r + vec2(3.1, 7.4) + 0.18 * t),
-                              fbm(p + 5.0 * r + vec2(6.7, 0.9) + 0.2 * t));
-
-                return fbm(p + 6.0 * s);
+                return fbm(p + 5.0 * warp_r);
             }
 
             vec4 open_color(vec3 coords_geo, vec3 size_geo) {
@@ -53,11 +51,7 @@
                 float reveal = smoothstep(appear + 0.5, appear - 0.5, (1.0 - p) * 1.8);
 
                 float distort_strength = (1.0 - p) * (1.0 - p) * 0.35;
-                vec2 wq = vec2(fbm(uv * 2.0 + vec2(0.0, t * 0.2)),
-                               fbm(uv * 2.0 + vec2(5.2, t * 0.2)));
-                vec2 wr = vec2(fbm(uv * 2.0 + 4.0 * wq + vec2(1.7, 9.2)),
-                               fbm(uv * 2.0 + 4.0 * wq + vec2(8.3, 2.8)));
-                vec2 warped_uv = uv + (wr - 0.5) * distort_strength;
+                vec2 warped_uv = uv + (warp_r - 0.5) * distort_strength;
 
                 vec3 tex_coords = niri_geo_to_tex * vec3(warped_uv, 1.0);
                 vec4 color = texture2D(niri_tex, tex_coords.st);
