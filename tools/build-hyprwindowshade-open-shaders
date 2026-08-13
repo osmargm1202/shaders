@@ -3,17 +3,29 @@
 set -euo pipefail
 
 repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-output_dir="${1:-$repo_root/hyprwindowshade/open}"
-output_parent="$(dirname -- "$output_dir")"
+output_link="${1:-$repo_root/hyprwindowshade/open}"
+output_parent="$(dirname -- "$output_link")"
+release_root="$output_parent/releases"
 
 command -v glslangValidator >/dev/null || {
   printf '%s\n' 'glslangValidator is required to generate HyprWindowShade shaders' >&2
   exit 1
 }
 
-mkdir -p "$output_parent"
-staging_dir="$(mktemp -d "$output_parent/.open.XXXXXX")"
-trap 'rm -rf "$staging_dir"' EXIT
+mkdir -p "$release_root"
+staging_dir="$(mktemp -d "$release_root/.release.XXXXXX")"
+link_candidate=
+backup_dir=
+activated=false
+
+cleanup() {
+  rm -rf "${staging_dir:-}"
+  rm -f "${link_candidate:-}"
+  if [ "$activated" != true ] && [ -n "${backup_dir:-}" ] && [ ! -e "$output_link" ]; then
+    mv -T "$backup_dir" "$output_link"
+  fi
+}
+trap cleanup EXIT HUP INT TERM
 
 for source in "$repo_root"/*/open.glsl; do
   [ -f "$source" ] || continue
@@ -30,7 +42,7 @@ for source in "$repo_root"/*/open.glsl; do
     cat <<'GLSL'
 #version 320 es
 // Generated from the Niri source in osmargm1202/shaders.
-// See ../niri-shaders-LICENSE for the retained MIT license and attribution.
+// See niri-shaders-LICENSE for the retained MIT license and attribution.
 precision highp float;
 
 in vec2 v_texcoord;
@@ -60,6 +72,28 @@ GLSL
 done
 
 install -Dm644 "$repo_root/LICENSE" "$staging_dir/niri-shaders-LICENSE"
-rm -rf "$output_dir"
-mv "$staging_dir" "$output_dir"
-trap - EXIT
+release_id="$(sha256sum "$staging_dir"/* | sha256sum | cut -c1-16)"
+release_dir="$release_root/$release_id"
+
+if [ -e "$release_dir" ]; then
+  rm -rf "$staging_dir"
+else
+  mv -T "$staging_dir" "$release_dir"
+fi
+staging_dir=
+
+# `open` is a stable symlink. Replacing it in one directory is atomic after
+# the one-time migration from an older checked-in directory.
+if [ -d "$output_link" ] && [ ! -L "$output_link" ]; then
+  backup_dir="$output_parent/.open-legacy.$$"
+  mv -T "$output_link" "$backup_dir"
+fi
+link_candidate="$(mktemp "$output_parent/.open.link.XXXXXX")"
+rm -f "$link_candidate"
+ln -s "releases/$release_id" "$link_candidate"
+mv -Tf "$link_candidate" "$output_link"
+link_candidate=
+activated=true
+rm -rf "${backup_dir:-}"
+backup_dir=
+trap - EXIT HUP INT TERM
