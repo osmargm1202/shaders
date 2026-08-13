@@ -1,0 +1,68 @@
+#version 320 es
+// Generated from the Niri source in osmargm1202/shaders.
+// See ../niri-shaders-LICENSE for the retained MIT license and attribution.
+precision highp float;
+
+in vec2 v_texcoord;
+out vec4 fragColor;
+
+uniform sampler2D tex;
+uniform float transition_progress;
+uniform float transition_seed;
+uniform vec2 surface_size;
+
+#define niri_clamped_progress clamp(transition_progress, 0.0, 1.0)
+#define niri_random_seed transition_seed
+#define niri_geo_to_tex mat3(1.0)
+#define niri_tex tex
+#define texture2D texture
+            float hash(vec2 p) {
+                return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+            }
+
+            vec4 open_color(vec3 coords_geo, vec3 size_geo) {
+                float p = niri_clamped_progress;
+                vec2 uv = coords_geo.xy;
+                float seed = niri_random_seed * 100.0;
+                float rp = 1.0 - p;
+
+                float num_layers = 10.0;
+                float pixel_layer = floor(hash(floor(uv * size_geo.xy) + seed) * num_layers);
+
+                vec4 result = vec4(0.0);
+                vec2 target = vec2(1.0, 0.0);
+
+                for (int i = 0; i < 10; i++) {
+                    float layer = float(i);
+                    float layer_delay = layer * 0.06;
+                    float layer_p = clamp((rp - layer_delay) / (1.0 - layer_delay * 0.5), 0.0, 1.0);
+
+                    float t = layer_p * layer_p;
+
+                    float layer_alpha = 1.0 - smoothstep(0.3, 0.85, layer_p);
+
+                    float lh = hash(vec2(layer + 0.5, seed));
+                    vec2 layer_target = target + vec2(-0.08 + lh * 0.16, -0.04 + lh * 0.08);
+
+                    float converge = t * 0.92;
+                    vec2 sample_uv = (uv - layer_target * converge) / (1.0 - converge);
+
+                    vec3 tex_coords = niri_geo_to_tex * vec3(sample_uv, 1.0);
+                    vec4 color = texture2D(niri_tex, tex_coords.st);
+
+                    float belongs = step(abs(pixel_layer - layer), 0.5);
+                    result += color * belongs * layer_alpha;
+                }
+
+                float initial_form = smoothstep(0.0, 0.05, rp);
+                result.a *= mix(1.0, 0.0, initial_form);
+                vec3 base_tex = niri_geo_to_tex * vec3(uv, 1.0);
+                vec4 base_color = texture2D(niri_tex, base_tex.st);
+                float base_alpha = 1.0 - smoothstep(0.0, 0.1, rp);
+
+                return base_color * base_alpha + result * (1.0 - base_alpha);
+            }
+
+void main() {
+  fragColor = open_color(vec3(v_texcoord, 1.0), vec3(surface_size, 1.0));
+}
