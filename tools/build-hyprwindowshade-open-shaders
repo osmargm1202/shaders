@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Generate the HyprWindowShade GLSL ES transition catalogue from the Niri sources.
+set -euo pipefail
+
+repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+output_dir="${1:-$repo_root/hyprwindowshade/open}"
+output_parent="$(dirname -- "$output_dir")"
+
+command -v glslangValidator >/dev/null || {
+  printf '%s\n' 'glslangValidator is required to generate HyprWindowShade shaders' >&2
+  exit 1
+}
+
+mkdir -p "$output_parent"
+staging_dir="$(mktemp -d "$output_parent/.open.XXXXXX")"
+trap 'rm -rf "$staging_dir"' EXIT
+
+for source in "$repo_root"/*/open.glsl; do
+  [ -f "$source" ] || continue
+  name="$(basename "$(dirname "$source")")"
+
+  # The retained Niri source is syntactically incomplete. Keep it usable by
+  # Niri, but do not publish an invalid HyprWindowShade artifact.
+  if [ "$name" = 'glass-warp' ]; then
+    continue
+  fi
+
+  destination="$staging_dir/$name.glsl"
+  {
+    cat <<'GLSL'
+#version 320 es
+// Generated from the Niri source in osmargm1202/shaders.
+// See ../niri-shaders-LICENSE for the retained MIT license and attribution.
+precision highp float;
+
+in vec2 v_texcoord;
+out vec4 fragColor;
+
+uniform sampler2D tex;
+uniform float transition_progress;
+uniform float transition_seed;
+uniform vec2 surface_size;
+
+#define niri_clamped_progress clamp(transition_progress, 0.0, 1.0)
+#define niri_random_seed transition_seed
+#define niri_geo_to_tex mat3(1.0)
+#define niri_tex tex
+#define texture2D texture
+GLSL
+    cat "$source"
+    cat <<'GLSL'
+
+void main() {
+  fragColor = open_color(vec3(v_texcoord, 1.0), vec3(surface_size, 1.0));
+}
+GLSL
+  } >"$destination"
+
+  glslangValidator -S frag "$destination"
+done
+
+install -Dm644 "$repo_root/LICENSE" "$staging_dir/niri-shaders-LICENSE"
+rm -rf "$output_dir"
+mv "$staging_dir" "$output_dir"
+trap - EXIT

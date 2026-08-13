@@ -1,239 +1,67 @@
 # Opening shaders for Niri and Hyprland
 
-This repository is the maintained [`osmargm1202/shaders`](https://github.com/osmargm1202/shaders)
-fork of [`liixini/shaders`](https://github.com/liixini/shaders). It preserves the
-upstream Niri shader sources, their headers, and the upstream MIT license.
+[`osmargm1202/shaders`](https://github.com/osmargm1202/shaders) is the maintained fork of [`liixini/shaders`](https://github.com/liixini/shaders). It preserves the original Niri sources, source headers, and MIT license, and publishes a validated HyprWindowShade opening-transition catalogue alongside them.
 
-The collection works **directly with Niri**. Hyprland needs an adapter: Niri
-`open.glsl` files expose `open_color()` and `niri_*` values, while
-[HyprWindowShade](https://github.com/osmargm1202/HyprWindowShade) accepts GLSL
-ES 3.20 fragment shaders with `main()`, `v_texcoord`, `tex`, and
-`transition_*` uniforms. Do not copy a Niri shader directly into
-HyprWindowShade; generate the adapted shader first.
+## Choose the right collection
 
-This guide documents a reproducible Hyprland configuration for Arch Linux and
-NixOS. It separates two independent effects:
+| Compositor | Use directly | Do not use |
+| --- | --- | --- |
+| [Niri](https://github.com/YaLTeR/niri) | `<effect>/open.glsl` and `<effect>/close.glsl` | `hyprwindowshade/open/` |
+| [Hyprland](https://github.com/hyprwm/Hyprland) with [HyprWindowShade](https://github.com/osmargm1202/HyprWindowShade) | `hyprwindowshade/open/<effect>.glsl` | the raw Niri `open.glsl` files |
 
-- **HyprWindowShade** renders an opening-transition GLSL shader on a client.
-- **HyprGlass** is optional Liquid Glass compositing for clients and layer
-  surfaces such as Waybar, Rofi, and nwg-dock. It is not a GLSL shader loader.
+Niri shaders expose `open_color()` and `niri_*` values. HyprWindowShade loads GLSL ES 3.20 fragment shaders with `main()`, `v_texcoord`, `tex`, and `transition_*` uniforms. The committed `hyprwindowshade/open/` files bridge those interfaces and have passed `glslangValidator`; Hyprland users do **not** need to adapt them themselves.
 
-## Scope and compatibility
+HyprWindowShade implements opening transitions only. Niri `close.glsl` files remain Niri-only; Hyprland has no supported close-transition equivalent.
 
-- The pinned [HyprWindowShade fork](https://github.com/osmargm1202/HyprWindowShade/tree/5fcc906a7fed036afcf7e53e889a99c424b8b0fb)
-  targets **Hyprland 0.56**. Plugins use Hyprland's internal ABI: rebuild the
-  plugin after every Hyprland update rather than loading an old `.so`.
-- The adapter ports every `*/open.glsl` file. HyprWindowShade supports opening
-  transitions only; `close.glsl` remains available for Niri and is not a
-  Hyprland effect.
-- Test a new shader before assigning it to a daily-use application. A bad GLSL
-  source can fail compilation; it must not be installed as an unvalidated
-  system shader.
+## Hyprland: use the ready-to-load catalogue
 
-## Shader catalogue
+1. Install or build an ABI-compatible HyprWindowShade plugin. The maintained fork is required today: its commit [`716b7e8`](https://github.com/osmargm1202/HyprWindowShade/commit/716b7e8d1e38b5dc0dda43f0e4580cf464d2ae2b) adds the tagged open-transition support that this catalogue uses. It targets **Hyprland 0.56**. Rebuild the plugin after a Hyprland update; plugins use Hyprland internal APIs and a `.so` cannot be universal across versions.
+2. Clone or pin this repository. No generator or shader compiler is required by an ordinary user:
 
-Every directory contains Niri `open.glsl`, `close.glsl`, and a configuration
-snippet. The available opening effects are:
+   ```sh
+   git clone https://github.com/osmargm1202/shaders.git "$HOME/.config/hypr/shaders"
+   ```
 
-`bounce`, `circle`, `colour-distance`, `crazy-parametric`, `crosshatch`,
-`crosswarp`, `directional`, `directional-wipe`, `dissolve`, `fade`, `fadecolor`,
-`flyeye`, `glass-warp`, `glitch`, `heat-melt`, `ink-splash`, `inkwell-drop`,
-`morph`, `overexposure`, `perlin`, `pixelate`, `pixelfade-wave`, `plasma-flow`,
-`polar-function`, `polka-dots-curtain`, `randomsquares`, `ripple`, `smoke`,
-`snap`, `soft-warp-fade`, `static-fade`, `voronoi-shatter`, and `wave-warp`.
+3. Load the plugin before loading a rule. The exact plugin path is defined by the plugin build:
 
-For Niri, follow the upstream [Niri animation configuration guide](https://github.com/niri-wm/niri/wiki/Configuration:-Animations).
+   ```ini
+   exec-once = hyprctl plugin load /home/USERNAME/.local/share/hyprland/plugins/HyprWindowShade.so
+   ```
 
-## Hyprland on Arch Linux
+4. Point an opening rule at a committed artifact. On Hyprland 0.55 and newer with Lua configuration:
 
-### 1. Install the build and shader-validation tools
+   ```lua
+   local shader_root = os.getenv("HOME") .. "/.config/hypr/shaders/hyprwindowshade/open"
 
-Install Hyprland and the build dependencies required by the pinned plugin. The
-package names below are Arch package names; rebuild the plugin after upgrading
-Hyprland.
+   hl.window_rule({
+     match = { class = "^(kitty)$" },
+     tag = "+shader_transition_open:" .. shader_root .. "/fade.glsl",
+   })
+   hl.window_rule({
+     match = { class = "^(kitty)$" },
+     tag = "+shader_transition_duration_ms:200",
+   })
+   ```
 
-```sh
-sudo pacman -S --needed \
-  base-devel git hyprland pkgconf glslang mesa libdrm libglvnd \
-  cairo freetype2 libpng pixman wayland-protocols
-```
+   For a `.conf` configuration:
 
-### 2. Build the ABI-matched plugin
+   ```ini
+   windowrule = match:class kitty, tag +shader_transition_open:/home/USERNAME/.config/hypr/shaders/hyprwindowshade/open/fade.glsl, tag +shader_transition_duration_ms:200
+   ```
 
-Clone the fork used by this setup at its known Hyprland 0.56 revision, then run
-its documented build script:
+   Replace `USERNAME` and `kitty`; obtain the real client class with:
 
-```sh
-git clone https://github.com/osmargm1202/HyprWindowShade.git \
-  "$HOME/src/HyprWindowShade"
-git -C "$HOME/src/HyprWindowShade" checkout \
-  5fcc906a7fed036afcf7e53e889a99c424b8b0fb
-cd "$HOME/src/HyprWindowShade"
-./build.sh
-```
+   ```sh
+   hyprctl activewindow -j | jq -r '.class'
+   ```
 
-The plugin README is the source of truth for its output path and runtime
-requirements. Confirm that it loads before adding any rules:
+   Reload Hyprland and completely reopen the target application. An opening shader runs only for a new-window event.
 
-```sh
-hyprctl plugin load \
-  "$HOME/.local/share/hyprland/plugins/HyprWindowShade.so"
-hyprctl plugins list
-```
+The transition tags are specific to this HyprWindowShade fork. [HyprGlass](https://github.com/hyprnux/hyprglass) is unrelated: it provides liquid-glass compositing and does not load this repository's GLSL files.
 
-For a persistent setup, load it once from the configuration that starts after
-Hyprland:
+## NixOS
 
-```ini
-exec-once = hyprctl plugin load /home/USERNAME/.local/share/hyprland/plugins/HyprWindowShade.so
-```
-
-Replace `USERNAME`; do not literally use that path. If Hyprland was upgraded,
-rebuild first and only then reload the plugin.
-
-### 3. Clone and pin this shader source
-
-A clone gives a visible, editable source checkout. For reproducibility, record
-the commit you selected instead of tracking an unspecified branch head.
-
-```sh
-git clone https://github.com/osmargm1202/shaders.git \
-  "$HOME/.config/hypr/niri-opening-shaders"
-git -C "$HOME/.config/hypr/niri-opening-shaders" rev-parse HEAD
-```
-
-### 4. Port and validate every opening shader
-
-Create `~/.local/bin/port-hyprwindowshade-open-shaders`, make it executable,
-and run it whenever this shader checkout changes. It stages and validates the
-complete opening-shader set, then atomically switches a stable output symlink
-to the new release. It intentionally ignores Niri `close.glsl`.
-
-```sh
-#!/usr/bin/env bash
-set -euo pipefail
-
-source_root="${1:-$HOME/.config/hypr/niri-opening-shaders}"
-destination_link="${2:-$HOME/.config/hypr/hyprwindowshade-shaders/open}"
-
-command -v glslangValidator >/dev/null || {
-  printf '%s\n' 'glslangValidator is required' >&2
-  exit 1
-}
-destination_parent="$(dirname "$destination_link")"
-release_root="$destination_parent/.open-releases"
-mkdir -p "$release_root"
-staging="$(mktemp -d "$release_root/.release.XXXXXX")"
-link_candidate=
-trap 'rm -rf "$staging"; rm -f "${link_candidate:-}"' EXIT
-
-# The stable path must be absent or a symlink. Do not replace a real directory:
-# use a new output path instead when migrating an older manual setup.
-if [[ -e "$destination_link" && ! -L "$destination_link" ]]; then
-  printf 'refusing to replace non-symlink output: %s\n' "$destination_link" >&2
-  exit 1
-fi
-
-for source in "$source_root"/*/open.glsl; do
-  [ -r "$source" ] || continue
-  name="$(basename "$(dirname "$source")")"
-  destination="$staging/$name.glsl"
-  {
-    cat <<'GLSL'
-// Generated from liixini/shaders. Keep the source license and attribution.
-#version 320 es
-precision highp float;
-
-in vec2 v_texcoord;
-out vec4 fragColor;
-
-uniform sampler2D tex;
-uniform float transition_progress;
-uniform float transition_seed;
-uniform vec2 surface_size;
-
-#define niri_clamped_progress clamp(transition_progress, 0.0, 1.0)
-#define niri_random_seed transition_seed
-#define niri_geo_to_tex mat3(1.0)
-#define niri_tex tex
-#define texture2D texture
-GLSL
-    cat "$source"
-    cat <<'GLSL'
-
-void main() {
-  fragColor = open_color(vec3(v_texcoord, 1.0), vec3(surface_size, 1.0));
-}
-GLSL
-  } >"$destination"
-  glslangValidator -S frag "$destination"
-done
-
-# Switch only after every source passed validation. Renaming a symlink within
-# one directory is atomic, so running Hyprland always sees either the prior
-# complete release or this complete release—never a partial shader set.
-link_candidate="$(mktemp "$destination_parent/.open.link.XXXXXX")"
-rm -f "$link_candidate"
-ln -s "$staging" "$link_candidate"
-mv -Tf "$link_candidate" "$destination_link"
-link_candidate=
-staging=
-trap - EXIT
-```
-
-```sh
-chmod +x ~/.local/bin/port-hyprwindowshade-open-shaders
-~/.local/bin/port-hyprwindowshade-open-shaders
-```
-
-`glslangValidator` failing is intentional: fix or remove the failed port; the
-stable output path continues to point at the previous release because the
-staging directory is never activated. Do not point a Hyprland rule at a file
-that did not validate.
-
-### 5. Assign an opening shader to an application
-
-Hyprland 0.55 and later use Lua configuration. Add a rule after the plugin is
-loaded, substituting the real application class and shader name:
-
-```lua
-local shader_root = os.getenv("HOME") .. "/.config/hypr/hyprwindowshade-shaders/open"
-
-hl.window_rule({
-  match = { class = "^(kitty)$" },
-  tag = "+shader_transition_open:" .. shader_root .. "/fade.glsl",
-})
-hl.window_rule({
-  match = { class = "^(kitty)$" },
-  tag = "+shader_transition_duration_ms:200",
-})
-```
-
-Find the exact class before writing a rule:
-
-```sh
-hyprctl activewindow -j | jq -r '.class'
-```
-
-Rules are evaluated in order. Keep more-specific title rules after general
-class rules. Restart the target application completely after `hyprctl reload`:
-opening shaders run only when the plugin receives a new-window event.
-
-HyprWindowShade also documents `.conf` rules, static shaders, layers, runtime
-dispatchers, and its Lua helper functions in its
-[README](https://github.com/osmargm1202/HyprWindowShade/tree/5fcc906a7fed036afcf7e53e889a99c424b8b0fb).
-
-## NixOS: reproducible adapter
-
-The companion [`osmargm1202/nixos`](https://github.com/osmargm1202/nixos)
-configuration is the reference NixOS integration. It pins this repository,
-ports every `open.glsl` at build time, and rejects invalid output with
-`glslangValidator`.
-
-### 1. Pin the three ABI-coupled inputs
-
-Use explicit revisions in `flake.nix`; the example names are local to your
-flake:
+Pin both the plugin implementation and this collection. The plugin must be built against the exact `hyprlandPackage` selected by your NixOS profile; the shader collection itself is a data input.
 
 ```nix
 inputs = {
@@ -241,131 +69,48 @@ inputs = {
     url = "github:osmargm1202/HyprWindowShade/5fcc906a7fed036afcf7e53e889a99c424b8b0fb";
     flake = false;
   };
-  niriShaders = {
+  shaders = {
     url = "github:osmargm1202/shaders/COMMIT";
     flake = false;
   };
-  hyprglass = {
-    url = "github:hyprnux/hyprglass/v0.7.0";
-    flake = false;
-  };
 };
 ```
 
-Replace `COMMIT` with a commit from this fork, run `nix flake lock --update-input
-niriShaders`, and commit the resulting `flake.lock`. Do not leave the source
-at an unpinned branch head.
+Replace `COMMIT`, update and commit `flake.lock`, then package the plugin with the selected Hyprland package and `inputs.shaders`. The reference implementation in [`osmargm1202/nixos`](https://github.com/osmargm1202/nixos) installs:
 
-### 2. Build the adapter against the selected Hyprland package
-
-Copy or import the reference
-[`hyprwindowshade.nix`](https://github.com/osmargm1202/nixos/blob/master/nixos/packages/hyprwindowshade.nix).
-It wraps the Niri interface, calls `glslangValidator -S frag` for every output,
-and installs the generated shaders under
-`share/hyprwindowshade/shaders/open`.
-
-Call it with the exact Hyprland package used by the profile:
-
-```nix
-hyprWindowShade = pkgs.callPackage ./hyprwindowshade.nix {
-  hyprland = hyprlandPackage;
-  src = inputs.hyprWindowShade;
-  niriShaders = inputs.niriShaders;
-};
+```text
+/etc/HyprWindowShade.so
+/etc/hyprwindowshade-shaders/open/<effect>.glsl
 ```
 
-Expose the plugin and generated output through stable system paths:
+Load `/etc/HyprWindowShade.so` at Hyprland startup and point your Lua rules to `/etc/hyprwindowshade-shaders/open/<effect>.glsl`. A NixOS build validates the committed GLSL catalogue before deployment; switch only after the target toplevel build succeeds.
 
-```nix
-environment.etc."HyprWindowShade.so".source =
-  "${hyprWindowShade}/lib/HyprWindowShade.so";
-environment.etc."hyprwindowshade-shaders".source =
-  "${hyprWindowShade}/share/hyprwindowshade/shaders";
-```
+## Catalogue
 
-Load `/etc/HyprWindowShade.so` at Hyprland startup, then point Lua rules at
-`/etc/hyprwindowshade-shaders/open/<shader>.glsl`. The complete reference is
-[`nixos/profiles/hyprland.nix`](https://github.com/osmargm1202/nixos/blob/master/nixos/profiles/hyprland.nix)
-and its [application rules](https://github.com/osmargm1202/nixos/blob/master/dotfiles/config/profiles/hyprland/.config/hypr/lua/windows-workspaces.lua).
+Every root effect directory retains its upstream Niri `open.glsl`, `close.glsl`, and configuration snippet. Every valid opening source is also published under `hyprwindowshade/open/` with the same effect name and a `.glsl` extension.
 
-### 3. Build before switching
+`glass-warp/open.glsl` is intentionally **not** published for HyprWindowShade. The retained Niri source lacks its closing brace, so its generated GLSL fails validation. It stays available for Niri exactly as supplied upstream. It will join the Hyprland catalogue only after the source is repaired and validates.
 
-Run the appropriate target build for your flake and only switch after the
-adapter validates. For the reference configuration, the targeted checks are:
+## Maintaining the generated catalogue
+
+`hyprwindowshade/open/` is a committed release artifact, not a per-user setup step. Contributors regenerate it after changing a Niri source or the adapter:
 
 ```sh
-nix build .#nixosConfigurations.HOST.config.system.build.toplevel
-nixos-rebuild switch --flake .#HOST
+nix shell nixpkgs#glslang -c ./tools/build-hyprwindowshade-open-shaders
 ```
 
-Use your real `HOST`. The build is the validation boundary: a GLSL failure must
-fail before deployment rather than produce a partial runtime shader set.
+The generator writes every output to a staging directory, validates each with `glslangValidator -S frag`, and replaces the catalogue only if every candidate passes. Review and commit the generated changes with the source change. It deliberately excludes the invalid `glass-warp` source described above.
 
-## Optional HyprGlass setup
+## Attribution and licenses
 
-[HyprGlass](https://github.com/hyprnux/hyprglass) provides a separate Liquid
-Glass effect. It replaces ordinary Hyprland decoration blur for glassed
-windows; it does not consume this repository's GLSL transitions.
+The repository retains the upstream [MIT license](LICENSE), source headers, and provenance. Keep them when redistributing or modifying these shaders.
 
-Load HyprGlass before its Lua configuration, keep stock decoration blur off,
-and opt into the layer namespaces that exist in your session:
-
-```lua
-if hl.plugin and hl.plugin.hyprglass then
-  local hg = hl.plugin.hyprglass
-  hg.config({
-    enabled = true,
-    manage_window_blur = true,
-    default_theme = "dark",
-    default_preset = "subtle",
-    layers = { enabled = true },
-  })
-  hg.layer("waybar", { preset = "subtle", mask_threshold = 0.1 })
-  hg.layer("rofi", { preset = "subtle", mask_threshold = 0.1 })
-  hg.layer("nwg-dock-hyprland", { preset = "subtle", mask_threshold = 0.1 })
-end
-
-hl.config({
-  decoration = {
-    blur = { enabled = false },
-  },
-})
-```
-
-Use `hyprctl activewindow -j` to identify a client and add
-`+hyprglass_enabled` or `+hyprglass_preset_subtle` tags through a window rule
-when you want a per-client policy. See the
-[HyprGlass configuration documentation](https://github.com/hyprnux/hyprglass/tree/v0.7.0)
-for presets, per-window tags, and layer caveats.
-
-## Troubleshooting
-
-| Symptom | Check and repair |
+| Project | Relationship |
 | --- | --- |
-| `hyprctl plugins list` does not show HyprWindowShade | Rebuild it against the installed Hyprland version, then load the current `.so` path. |
-| A shader never appears | Confirm the client class with `hyprctl activewindow -j`, reload Hyprland, close every instance of the client, then reopen it. |
-| GLSL validation fails | Do not deploy it. Re-run the adapter and inspect the validator output; Niri sources must be wrapped before HyprWindowShade can use them. |
-| A HyprGlass layer is unchanged | Check the real layer namespace and its opacity mask. Layer rendering is version-sensitive. |
-| A NixOS switch has a stale plugin | Build the plugin from the same `hyprlandPackage` as the active profile and switch only after the toplevel build succeeds. |
+| [`liixini/shaders`](https://github.com/liixini/shaders) | Original Niri shader collection |
+| [`osmargm1202/shaders`](https://github.com/osmargm1202/shaders) | Maintained source and validated HyprWindowShade catalogue |
+| [`osmargm1202/HyprWindowShade`](https://github.com/osmargm1202/HyprWindowShade) | Required plugin fork for tagged opening transitions on Hyprland 0.56 |
+| [`ManofJELLO/HyprWindowShade`](https://github.com/ManofJELLO/HyprWindowShade) | Upstream plugin project |
+| [`hyprnux/hyprglass`](https://github.com/hyprnux/hyprglass) | Optional, separate liquid-glass compositor plugin |
 
-## Attribution, forks, and licenses
-
-The MIT `LICENSE` in this repository is retained unchanged. Keep its copyright
-notice and every source header when redistributing, modifying, or porting
-shaders. This fork does not relicense upstream shader code, Hyprland plugins,
-or HyprGlass.
-
-| Project | Relationship and use in this setup | License | Repository |
-| --- | --- | --- | --- |
-| `osmargm1202/shaders` | This maintained fork; source input for the Hyprland adapter | [MIT](LICENSE) | [fork](https://github.com/osmargm1202/shaders) |
-| `liixini/shaders` | Original Niri shader collection and source origin of this fork | [MIT](https://github.com/liixini/shaders/blob/main/LICENSE) | [upstream](https://github.com/liixini/shaders) |
-| `liixini/skwd-wall` | Origin for sources marked `Ported from skwd-wall` in their headers | [MIT](https://github.com/liixini/skwd-wall/blob/main/LICENSE) | [upstream](https://github.com/liixini/skwd-wall) |
-| `gl-transitions/gl-transitions` | Origin noted in shader headers, including `circle` and `ripple` | [MIT](https://github.com/gl-transitions/gl-transitions/blob/master/LICENSE) | [upstream](https://github.com/gl-transitions/gl-transitions) |
-| `osmargm1202/HyprWindowShade` | Fork used by the documented Arch and NixOS integration | [MIT](https://github.com/osmargm1202/HyprWindowShade/blob/main/LICENSE) | [used fork](https://github.com/osmargm1202/HyprWindowShade) |
-| `ManofJELLO/HyprWindowShade` | Original HyprWindowShade project | [MIT](https://github.com/ManofJELLO/HyprWindowShade/blob/main/LICENSE) | [upstream](https://github.com/ManofJELLO/HyprWindowShade) |
-| `hyprnux/hyprglass` | Optional Liquid Glass companion; not redistributed here | [BSD-3-Clause](https://github.com/hyprnux/hyprglass/blob/main/LICENSE) | [upstream](https://github.com/hyprnux/hyprglass) |
-| `hyprwm/Hyprland` | Compositor and plugin/window-rule API | [BSD-3-Clause](https://github.com/hyprwm/Hyprland/blob/main/LICENSE) | [upstream](https://github.com/hyprwm/Hyprland) |
-| `YaLTeR/niri` | Original compositor and shader interface | [GPL-3.0](https://github.com/YaLTeR/niri/blob/main/LICENSE) | [upstream](https://github.com/YaLTeR/niri) |
-
-Project names and links identify provenance; they do not imply endorsement by
-any upstream author or project.
+Project names identify provenance and do not imply endorsement by upstream authors.
