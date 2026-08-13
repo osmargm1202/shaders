@@ -72,7 +72,13 @@ GLSL
 done
 
 install -Dm644 "$repo_root/LICENSE" "$staging_dir/niri-shaders-LICENSE"
-release_id="$(sha256sum "$staging_dir"/* | sha256sum | cut -c1-16)"
+release_id="$(
+  for artifact in "$staging_dir"/*; do
+    printf '%s  %s\n' \
+      "$(sha256sum "$artifact" | cut -d ' ' -f1)" \
+      "$(basename "$artifact")"
+  done | sha256sum | cut -c1-16
+)"
 release_dir="$release_root/$release_id"
 
 if [ -e "$release_dir" ]; then
